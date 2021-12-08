@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-keycloak
+  labels:
+    db: postgres-keycloak
+spec:
+  selector:
+    matchLabels:
+      db: postgres-keycloak
+  template:
+    metadata:
+      labels:
+        db: postgres-keycloak
+    spec:
+      containers:
+        - name: postgres-keycloak
+          image: postgres:13.4
+          env:
+            - name: POSTGRES_USER
+              value: admin
+            - name: POSTGRES_PASSWORD
+              value: springCloud_Pwd!
+            - name: POSTGRES_DB
+              value: postgres
+          resources:
+            requests:
+              cpu: 100m
+              memory: 60Mi
+            limits:
+              cpu: 200m
+              memory: 120Mi
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-keycloak
+  labels:
+    db: postgres-keycloak
+spec:
+  type: ClusterIP
+  selector:
+    db: postgres-keycloak
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432

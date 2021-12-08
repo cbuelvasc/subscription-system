@@ -1,0 +1,7 @@
+include 'configuration-service'
+include 'edge-service'
+include 'subscription-service'
+include 'email-service'
+include 'subs-service'
+include 'authorization-service'
+

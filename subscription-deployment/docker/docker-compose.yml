@@ -1,0 +1,248 @@
+version: "3.8"
+
+services:
+  
+  edge-service:
+    image: "company/edge-service:0.0.1-SNAPSHOT"
+    container_name: "edge-service"
+    environment:
+      - BPL_DEBUG_ENABLED=true
+      - BPL_DEBUG_PORT=8000
+      - "KEYCLOAK_URL=http://host.docker.internal:8080"
+      - SUBSCRIPTION_SERVICE_URL=http://subscription-service:8183
+      - SPRING_CLOUD_CONFIG_URI=http://configuration-service:8888
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_REDIS_HOST=redis
+      - ZIPKIN_URL=http://tempo:9411
+    depends_on:
+      - fluent-bit
+      - keycloak
+      - redis
+      - tempo
+    ports:
+      - "9000:9000"
+      - "8000:8000"
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+
+  configuration-service:
+    image: "company/configuration-service:0.0.1-SNAPSHOT"
+    container_name: "configuration-service"
+    environment:
+      - BPL_JVM_THREAD_COUNT=50
+      - BPL_DEBUG_ENABLED=true
+      - BPL_DEBUG_PORT=9888
+      - ENCRYPT_KEY=sharedkey
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - ZIPKIN_URL=http://tempo:9411
+    depends_on:
+      - fluent-bit
+      - tempo
+    ports:
+      - "8888:8888"
+      - "9888:9888"
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+
+  subscription-service:
+    image: "company/subscription-service:0.0.1-SNAPSHOT"
+    container_name: "subscription-service"
+    environment:
+      - "BPL_JVM_THREAD_COUNT=50"
+      - "BPL_DEBUG_ENABLED=true"
+      - "BPL_DEBUG_PORT=8001"
+      - "KEYCLOAK_URL=http://localhost:8080"
+      - "SPRING_CLOUD_CONFIG_URI=http://configuration-service:8888"
+      - "SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-subscription:5432/companydb_subscription"
+      - "SPRING_RABBITMQ_HOST=rabbitmq"
+      - "ZIPKIN_URL=http://tempo:9411"
+    depends_on:
+      - fluent-bit
+      - keycloak
+      - postgres-subscription
+      - rabbitmq
+      - tempo
+    ports:
+      - "9001:9001"
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+
+  subs-service:
+    image: "company/subs-service:0.0.1-SNAPSHOT"
+    container_name: "subs-service"
+    environment:
+      - "BPL_JVM_THREAD_COUNT=50"
+      - "BPL_DEBUG_ENABLED=true"
+      - "BPL_DEBUG_PORT=8001"
+      - KEYCLOAK_URL=http://keycloak:8080
+      - "SPRING_CLOUD_CONFIG_URI=http://configuration-service:8888"
+      - "SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-subscription:5432/companydb_subscription"
+      - "SPRING_RABBITMQ_HOST=rabbitmq"
+      - "ZIPKIN_URL=http://tempo:9411"
+    depends_on:
+      - fluent-bit
+      - keycloak
+      - postgres-subscription
+      - rabbitmq
+      - tempo
+    ports:
+      - "8184:8184"
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+
+  email-service:
+    image: "company/email-service:0.0.1-SNAPSHOT"
+    container_name: "email-service"
+    environment:
+      - BPL_JVM_THREAD_COUNT=50
+      - BPL_DEBUG_ENABLED=true
+      - BPL_DEBUG_PORT=8001
+      #- KEYCLOAK_URL=http://host.docker.internal:8080
+      - SPRING_CLOUD_CONFIG_URI=http://configuration-service:8888
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - ZIPKIN_URL=http://tempo:9411
+    depends_on:
+      - fluent-bit
+      #- polar-keycloak
+      - rabbitmq
+      - tempo
+    ports:
+      - "9003:9003"
+      - "8003:8003"
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+
+  postgres-subscription:
+    image: postgres:12-alpine
+    container_name: "postgres-subscription"
+    ports:
+      - "15432:5432"
+    volumes:
+      - ./postgres-data-subscription:/var/lib/postgresql/data
+    environment:
+      - "POSTGRES_USER=user"
+      - "POSTGRES_PASSWORD=password"
+      - "POSTGRES_DB=companydb_subscription"
+
+  redis:
+    image: "redis:6.2"
+    container_name: "redis"
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3.8-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=user
+      - RABBITMQ_DEFAULT_PASS=password
+
+  grafana:
+    image: grafana/grafana:8.2.3
+    container_name: grafana
+    depends_on:
+      - loki
+      - prometheus
+      - tempo
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: user
+      GF_SECURITY_ADMIN_PASSWORD: password
+    volumes:
+      - ./platform/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./platform/grafana/dashboards:/etc/grafana/provisioning/dashboards
+
+  loki:
+    image: grafana/loki:2.4.0
+    container_name: loki
+    depends_on:
+      - fluent-bit
+    ports:
+      - "3100:3100"
+
+  prometheus:
+    image: prom/prometheus:v2.30.3
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - "./platform/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+
+  tempo:
+    image: grafana/tempo:1.2.0
+    container_name: tempo
+    command: -config.file /etc/tempo-config.yml
+    volumes:
+      - ./platform/tempo/tempo.yml:/etc/tempo-config.yml
+    ports:
+      - "3101:3100"     # Tempo
+      - "9411:9411"     # Zipkin
+
+  fluent-bit:
+    image: grafana/fluent-bit-plugin-loki:2.4.0-amd64
+    container_name: fluent-bit
+    ports:
+      - "24224:24224"
+    environment:
+      - LOKI_URL=http://loki:3100/loki/api/v1/push
+    volumes:
+      - ./platform/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
+
+  keycloak:
+    image: jboss/keycloak:15.0.1
+    container_name: keycloak
+    command:
+      [
+          '-b',
+          '0.0.0.0',
+          '-Dkeycloak.migration.action=import',
+          '-Dkeycloak.migration.provider=dir',
+          '-Dkeycloak.migration.dir=/opt/jboss/keycloak/realm-config',
+          '-Dkeycloak.migration.strategy=OVERWRITE_EXISTING',
+          '-Djboss.socket.binding.port-offset=1000',
+          '-Dkeycloak.profile.feature.upload_scripts=enabled',
+      ]
+    volumes:
+      - ./realm-config:/opt/jboss/keycloak/realm-config
+    depends_on:
+      - postgres-keycloak
+    environment:
+      - "KEYCLOAK_USER=admin"
+      - "KEYCLOAK_PASSWORD=admin"
+      - "DB_VENDOR=POSTGRES"
+      - "DB_ADDR=host.docker.internal"
+      - "DB_DATABASE=postgres"
+      - "DB_USER=admin"
+      - "DB_SCHEMA=keycloak"
+      - "DB_PASSWORD=springCloud_Pwd!"
+    ports:
+      - "8080:9080"
+      - "9443:9443"
+      - "10990:10990"
+
+  postgres-keycloak:
+    image: postgres:12-alpine
+    container_name: postgres-keycloak
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+      - ./sql/create_schema.sql:/docker-entrypoint-initdb.d/create_schema.sql
+    environment:
+      - "POSTGRES_USER=admin"
+      - "POSTGRES_PASSWORD=springCloud_Pwd!"
+      - "POSTGRES_DB=postgres"
